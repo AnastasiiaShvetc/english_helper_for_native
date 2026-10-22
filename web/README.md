@@ -4,7 +4,7 @@
 
 ## Как посмотреть
 
-- Если GitHub Pages включён, откройте https://anastasiashvetc.github.io/english_helper_for_native/.
+- Если GitHub Pages включён, откройте https://anastasiiashvetc.github.io/english_helper_for_native/.
 - Для проверки как сайта запустите из корня репозитория `python3 -m http.server 8000` и откройте `http://127.0.0.1:8000/web/` на этом компьютере.
 - Код сайта находится в этой папке: `index.html`, `app.js`, `style.css`, `content.js`, `manifest.webmanifest`, `sw.js` и изображение маскотов.
 
