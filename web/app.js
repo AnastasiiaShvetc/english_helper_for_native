@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='lesson-14-v1';
+const APP_VERSION='lesson-14-transfer-v1';
 const STORAGE_KEY='my-english-progress-v1';
 const MASCOT_ASSET=window.MASCOT_DATA||'./assets/mascots.png';
 const REVIEW_DAYS=[1,3,7,14,30,60];
@@ -123,9 +123,29 @@ function render(){if(!content){app.innerHTML='<p class="error">Не удалос
 function navigate(page){ui.page=page;render();window.scrollTo(0,0)}
 function exportData(){const blob=new Blob([JSON.stringify({format:'my-english-progress',exportedAt:new Date().toISOString(),data},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`my-english-progress-${moscowDay()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 async function importData(file){try{const parsed=JSON.parse(await file.text());const saved=parsed.data;if(parsed.format!=='my-english-progress'||saved?.version!==1||!saved.progress||!Array.isArray(saved.attempts)||!Array.isArray(saved.sessions))throw Error('Файл не похож на копию прогресса.');if(!confirm('Заменить текущий прогресс данными из выбранного файла? Сначала скачайте копию текущих данных, если они нужны.'))return;data=saved;persist();ui.message='Прогресс восстановлен из файла.';navigate('settings')}catch(e){ui.message='Не удалось восстановить файл: '+e.message;render()}}
+async function importFromPrivateLink(){
+  const hash=location.hash;
+  if(!hash.startsWith('#progress='))return;
+  history.replaceState(null,'',location.pathname+location.search);
+  try{
+    const encoded=hash.slice('#progress='.length);
+    if(!/^[A-Za-z0-9_-]{1,20000}$/.test(encoded)||typeof DecompressionStream==='undefined')throw Error('Не удалось открыть ссылку с прогрессом в этом браузере.');
+    const binary=atob(encoded.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-encoded.length%4)%4));
+    const bytes=Uint8Array.from(binary,character=>character.charCodeAt(0));
+    const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+    const parsed=JSON.parse(await new Response(stream).text()),saved=parsed.data;
+    if(parsed.format!=='my-english-progress'||saved?.version!==1||!saved.progress||!Array.isArray(saved.attempts)||!Array.isArray(saved.sessions))throw Error('Ссылка не содержит подходящий прогресс.');
+    if(data.attempts.length&&!confirm('На этом устройстве уже есть результаты занятий. Заменить их прогрессом с телефона?')){ui.message='Прогресс на этом устройстве оставлен без изменений.';navigate('settings');return}
+    data=saved;
+    if(!persist())throw Error('Браузер не смог сохранить прогресс.');
+    ui.message='Готово: прогресс с телефона перенесён на это устройство.';
+    navigate('settings');
+  }catch(e){ui.message='Не удалось перенести прогресс по ссылке. '+e.message;navigate('settings')}
+}
 document.addEventListener('click',event=>{const choice=event.target.closest('[data-choice]');if(choice){if(ui.session?.result)return;submit(choice.dataset.choice);return}const button=event.target.closest('[data-action]');if(!button)return;const action=button.dataset.action;if(action==='check'){submit(document.getElementById('answer')?.value||'');return}if(action==='next'){ui.session.index++;ui.session.answer='';ui.session.result=null;saveActive();navigate('question');return}if(action==='next-rule'){ui.session.index++;saveActive();navigate('rule');return}if(action==='again'){start(ui.stage);return}if(action==='resume'){resume();return}if(action==='export'){exportData();return}if(action==='import'){document.getElementById('file-import').click();return}if(action.startsWith('lesson:')){ui.mode='lesson';ui.lesson=action.split(':')[1];navigate('lesson');return}if(action.startsWith('part:')){ui.part=action.split(':')[1];navigate('blocks');return}if(action.startsWith('block:')){ui.block=action.split(':')[1];navigate('stages');return}if(action.startsWith('stage:')){start(action.split(':')[1]);return}if(action.startsWith('review:')){ui.mode='review';ui.reviewType=action.split(':')[1];navigate('blocks');return}if(action==='lesson-back'){navigate(ui.mode==='review'?'review':'lesson');return}if(action==='blocks-back'){navigate('blocks');return}if(action==='stages'){navigate('stages');return}if(action==='review'){ui.mode='review';navigate('review');return}navigate(action)});
 document.addEventListener('change',event=>{if(event.target.id==='file-import'&&event.target.files[0])importData(event.target.files[0])});
 document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('.card.clickable'))event.target.click();if(event.key==='Enter'&&event.target.id==='answer'&&!ui.session?.result)submit(event.target.value)});
 setInterval(()=>{if(ui.page==='home'&&moscowDay()!==window.lastDay){window.lastDay=moscowDay();render()}},30000);window.lastDay=moscowDay();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
 render();
+importFromPrivateLink();
