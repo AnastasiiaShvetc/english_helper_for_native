@@ -4,7 +4,7 @@
   class ProgressSync{
     constructor({getData,applyData,onStatus,endpoint=root.ENGLISH_SYNC_ENDPOINT||'https://2-26-62-47.sslip.io/english-sync'}){
       Object.assign(this,{getData,applyData,onStatus,endpoint});
-      this.token=localStorage.getItem(TOKEN_KEY)||'';this.state=this.token?'syncing':'not-connected';this.lastSync=0;this.pending=false;this.running=false;
+      this.paused=!root.ENGLISH_SYNC_ENDPOINT;this.token=localStorage.getItem(TOKEN_KEY)||'';this.state=this.token?'syncing':'not-connected';this.lastSync=0;this.pending=false;this.running=false;
     }
     status(state){this.state=state;this.onStatus?.(state);}
     async request(path,body,auth=false){
@@ -16,6 +16,7 @@
       }finally{clearTimeout(timer);}
     }
     async start(){
+      if(this.paused){this.status('paused');return;}
       clearInterval(this.interval);
       if(location.hash.startsWith('#sync=')){
         const code=location.hash.slice(6);history.replaceState(null,'',location.pathname+location.search);
@@ -45,9 +46,9 @@
       history.replaceState(null,'',location.pathname+location.search+'#sync='+match[1]);
       await this.start();
     }
-    schedule(){if(!this.token)return;this.pending=true;clearTimeout(this.timer);this.timer=setTimeout(()=>this.sync(),650);}
+    schedule(){if(this.paused||!this.token)return;this.pending=true;clearTimeout(this.timer);this.timer=setTimeout(()=>this.sync(),650);}
     async sync(){
-      if(!this.token)return;
+      if(this.paused||!this.token)return;
       if(this.running){this.pending=true;return;}
       this.running=true;this.pending=false;this.status('syncing');
       let succeeded=false;
@@ -61,8 +62,8 @@
       finally{this.running=false;if(this.pending&&succeeded)this.schedule();}
     }
     markup(){
-      const titles={'not-connected':'Пока только на этом устройстве',syncing:'Сохраняем общий прогресс…',synced:'Прогресс синхронизирован',offline:'Ожидаем подключения к серверу','auth-error':'Нужно снова подключить устройство','invalid-code':'Ссылка уже использована или устарела','backup-error':'Не удалось создать резервную копию',error:'Не удалось объединить прогресс'};
-      const descriptions={'not-connected':'Откройте личную ссылку подключения на этом устройстве. Уже пройденные задания будут добавлены к общему прогрессу.',syncing:'Результаты телефона и компьютера объединяются автоматически.',synced:'Занятия сохраняются на вашем сервере. Откройте приложение на другом подключённом устройстве, чтобы продолжить.',offline:'Можно продолжать занятия. Ответы остаются в браузере и отправятся автоматически, когда сервер станет доступен.','auth-error':'Локальные результаты сохранены. Для подключения потребуется новая личная ссылка.','invalid-code':'Локальные результаты сохранены. Используйте отдельную неиспользованную ссылку для этого устройства.','backup-error':'Результаты остаются на устройстве. Скачайте копию прогресса и освободите место в браузере.',error:'Локальные результаты сохранены. Скачайте резервную копию перед восстановлением данных.'};
+      const titles={paused:'Синхронизация приостановлена', 'not-connected':'Пока только на этом устройстве',syncing:'Сохраняем общий прогресс…',synced:'Прогресс синхронизирован',offline:'Ожидаем подключения к серверу','auth-error':'Нужно снова подключить устройство','invalid-code':'Ссылка уже использована или устарела','backup-error':'Не удалось создать резервную копию',error:'Не удалось объединить прогресс'};
+      const descriptions={paused:'Идёт проверка полной копии прогресса с компьютера. Данные этого устройства не отправляются и не заменяются. Ниже можно скачать копии для восстановления.', 'not-connected':'Откройте личную ссылку подключения на этом устройстве. Уже пройденные задания будут добавлены к общему прогрессу.',syncing:'Результаты телефона и компьютера объединяются автоматически.',synced:'Занятия сохраняются на вашем сервере. Откройте приложение на другом подключённом устройстве, чтобы продолжить.',offline:'Можно продолжать занятия. Ответы остаются в браузере и отправятся автоматически, когда сервер станет доступен.','auth-error':'Локальные результаты сохранены. Для подключения потребуется новая личная ссылка.','invalid-code':'Локальные результаты сохранены. Используйте отдельную неиспользованную ссылку для этого устройства.','backup-error':'Результаты остаются на устройстве. Скачайте копию прогресса и освободите место в браузере.',error:'Локальные результаты сохранены. Скачайте резервную копию перед восстановлением данных.'};
       const connect=['not-connected','auth-error','invalid-code'].includes(this.state)?'<label for="sync-link">Личная ссылка подключения</label><input class="input" id="sync-link" type="password" autocomplete="off" placeholder="Вставьте ссылку для этого устройства"><button class="btn full" data-action="connect-sync">Подключить устройство</button>':'';
       return `<strong>${titles[this.state]||titles.error}</strong><p class="sub">${descriptions[this.state]||descriptions.error}</p>${connect}`;
     }
