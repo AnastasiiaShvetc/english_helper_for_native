@@ -16,6 +16,7 @@
       }finally{clearTimeout(timer);}
     }
     async start(){
+      clearInterval(this.interval);
       if(location.hash.startsWith('#sync=')){
         const code=location.hash.slice(6);history.replaceState(null,'',location.pathname+location.search);
         this.status('syncing');
@@ -31,10 +32,18 @@
       catch{this.status('backup-error');return;}
       await this.sync();
       this.interval=setInterval(()=>{if(!document.hidden)this.sync();},15000);
+      if(this.eventsBound)return;
+      this.eventsBound=true;
       window.addEventListener('online',()=>this.sync());
       window.addEventListener('focus',()=>this.sync());
       document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.sync();});
       window.addEventListener('storage',event=>{if(event.key==='my-english-progress-v1'&&event.newValue){try{const other=JSON.parse(event.newValue);if(root.EnglishSyncData.valid(other)){this.applyData(root.EnglishSyncData.merge(this.getData(),other));this.schedule();}}catch{this.status('error');}}});
+    }
+    async connect(value){
+      const match=String(value).trim().match(/(?:^|#sync=)([A-Za-z0-9_-]{32})$/);
+      if(!match){this.status('invalid-code');return;}
+      history.replaceState(null,'',location.pathname+location.search+'#sync='+match[1]);
+      await this.start();
     }
     schedule(){if(!this.token)return;this.pending=true;clearTimeout(this.timer);this.timer=setTimeout(()=>this.sync(),650);}
     async sync(){
@@ -54,7 +63,8 @@
     markup(){
       const titles={'not-connected':'Пока только на этом устройстве',syncing:'Сохраняем общий прогресс…',synced:'Прогресс синхронизирован',offline:'Ожидаем подключения к серверу','auth-error':'Нужно снова подключить устройство','invalid-code':'Ссылка уже использована или устарела','backup-error':'Не удалось создать резервную копию',error:'Не удалось объединить прогресс'};
       const descriptions={'not-connected':'Откройте личную ссылку подключения на этом устройстве. Уже пройденные задания будут добавлены к общему прогрессу.',syncing:'Результаты телефона и компьютера объединяются автоматически.',synced:'Занятия сохраняются на вашем сервере. Откройте приложение на другом подключённом устройстве, чтобы продолжить.',offline:'Можно продолжать занятия. Ответы остаются в браузере и отправятся автоматически, когда сервер станет доступен.','auth-error':'Локальные результаты сохранены. Для подключения потребуется новая личная ссылка.','invalid-code':'Локальные результаты сохранены. Используйте отдельную неиспользованную ссылку для этого устройства.','backup-error':'Результаты остаются на устройстве. Скачайте копию прогресса и освободите место в браузере.',error:'Локальные результаты сохранены. Скачайте резервную копию перед восстановлением данных.'};
-      return `<strong>${titles[this.state]||titles.error}</strong><p class="sub">${descriptions[this.state]||descriptions.error}</p>`;
+      const connect=['not-connected','auth-error','invalid-code'].includes(this.state)?'<label for="sync-link">Личная ссылка подключения</label><input class="input" id="sync-link" type="password" autocomplete="off" placeholder="Вставьте ссылку для этого устройства"><button class="btn full" data-action="connect-sync">Подключить устройство</button>':'';
+      return `<strong>${titles[this.state]||titles.error}</strong><p class="sub">${descriptions[this.state]||descriptions.error}</p>${connect}`;
     }
   }
   root.EnglishProgressSync=ProgressSync;

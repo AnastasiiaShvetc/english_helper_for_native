@@ -1,4 +1,4 @@
-const CACHE='my-english-lesson14-server-sync-v1';
+const CACHE='my-english-lesson14-server-sync-v2';
 const FILES=['./','./index.html','./style.css','./content.js','./app.js','./sync-data.js','./sync-client.js','./manifest.webmanifest','./assets/mascots.png'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()))});

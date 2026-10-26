@@ -26,7 +26,7 @@ const freePort=()=>new Promise(r=>{const s=net.createServer();s.listen(0,'127.0.
     };
     const p1=await init(phone,'phone-old',100),p2=await init(desktop,'desktop-old',200);
     await p1.goto(origin+'/web/#sync='+a);await p1.waitForFunction(()=>progressSync.state==='synced');
-    await p2.goto(origin+'/web/#sync='+b);await p2.waitForFunction(()=>progressSync.state==='synced');
+    await p2.goto(origin+'/web/');await p2.locator('[data-action=settings]').click();await p2.locator('#sync-link').fill(origin+'/web/#sync='+b);await p2.locator('[data-action=connect-sync]').click();await p2.waitForFunction(()=>progressSync.state==='synced');
     await p1.evaluate(()=>progressSync.sync());
     assert.equal(await p1.evaluate(()=>data.attempts.length),2);assert.equal(await p2.evaluate(()=>data.attempts.length),2);
     assert.equal(await p1.evaluate(()=>JSON.parse(localStorage.getItem('my-english-before-sync-v1')).attempts.length),1);

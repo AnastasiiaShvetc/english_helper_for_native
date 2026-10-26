@@ -24,7 +24,9 @@ sudo -u english-sync /opt/english-sync/bin/node \
 Open the existing application URL with `#sync=<code>` on the intended device.
 Codes expire after seven days and can be used only once. The fragment is removed
 from the address before exchange, and the device receives its own token. Use a
-different code for each device. The server rate-limits code exchanges. A device
+different code for each device. In an installed home-screen PWA, open its Data page
+and paste the invitation into the connection field instead: an external browser
+may have a separate storage container from the installed app. The server rate-limits code exchanges. A device
 keeps its token locally; clearing browser data requires a fresh invitation.
 
 ## Data preservation
