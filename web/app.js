@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='lesson-14-vocabulary-table-v2';
+const APP_VERSION='lesson-14-server-sync-v1';
 const STORAGE_KEY='my-english-progress-v1';
 const MASCOT_ASSET=window.MASCOT_DATA||'./assets/mascots.png';
 const REVIEW_DAYS=[1,3,7,14,30,60];
@@ -27,8 +27,9 @@ const content=window.ENGLISH_CONTENT;
 const ui={page:'home',lesson:null,part:'all',block:'words',stage:'recognize',mode:'lesson',reviewType:'due',session:null,message:''};
 function emptyData(){return {version:1,progress:{},attempts:[],sessions:[],activeSession:null}}
 let data=emptyData();
+let progressSync=null;
 try{const saved=JSON.parse(localStorage.getItem(STORAGE_KEY));if(saved&&saved.version===1&&saved.progress&&Array.isArray(saved.attempts)&&Array.isArray(saved.sessions))data=saved}catch(e){ui.message='Не удалось прочитать сохранённый прогресс. Создайте копию данных перед продолжением.'}
-function persist(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));return true}catch(e){ui.message='Браузер не смог сохранить ответ. Проверьте свободное место и настройки хранения.';return false}}
+function persist(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));progressSync?.schedule();return true}catch(e){ui.message='Браузер не смог сохранить ответ. Проверьте свободное место и настройки хранения.';return false}}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function normalize(value){return String(value??'').normalize('NFKC').toLowerCase().replace(/[’‘]/g,"'").replace(/\s+/g,' ').trim().replace(/[.!?]+$/,'')}
 function plural(n,one,few,many){const a=n%10,b=n%100;return b>=11&&b<=14?many:a===1?one:a>=2&&a<=4?few:many}
@@ -63,7 +64,7 @@ function learnedCount(){return allItems().filter(learned).length}
 function dueCount(){return allItems().reduce((count,row)=>count+Object.keys(STAGES).filter(stage=>stage!=='rule'&&eligible(row,stage)&&progress(row,stage)?.status==='review'&&progress(row,stage).due<=Date.now()).length,0)}
 function currentWeekDays(){const now=dayNumber(moscowDay());const weekday=(new Date(now*86400000).getUTCDay()+6)%7;return Array.from({length:7},(_,i)=>new Date((now-weekday+i)*86400000).toISOString().slice(0,10))}
 function motivation(){return MOTIVATION[dayNumber(moscowDay())%MOTIVATION.length]}
-function saveActive(){if(!ui.session)return;data.activeSession={stage:ui.stage,mode:ui.mode,lesson:ui.lesson,part:ui.part,reviewType:ui.reviewType,keys:ui.session.rows.map(r=>itemKey(r,ui.stage)),index:ui.session.index,first:ui.session.first,answer:ui.session.answer,result:ui.session.result,started:ui.session.started,choices:ui.session.choices};persist()}
+function saveActive(){if(!ui.session)return;data.activeSessionAt=Date.now();data.activeSession={stage:ui.stage,mode:ui.mode,lesson:ui.lesson,part:ui.part,reviewType:ui.reviewType,keys:ui.session.rows.map(r=>itemKey(r,ui.stage)),index:ui.session.index,first:ui.session.first,answer:ui.session.answer,result:ui.session.result,started:ui.session.started,choices:ui.session.choices};persist()}
 function resume(){const saved=data.activeSession;if(!saved)return;const items=allItems(),rows=saved.keys.map(key=>items.find(r=>itemKey(r,saved.stage)===key));if(rows.some(r=>!r)){data.activeSession=null;persist();ui.message='Материал этой тренировки изменился. Начните новую подборку.';navigate('home');return}Object.assign(ui,{stage:saved.stage,mode:saved.mode,lesson:saved.lesson,part:saved.part,reviewType:saved.reviewType,session:{rows,index:saved.index,first:saved.first,answer:saved.answer,result:saved.result,started:saved.started,choices:saved.choices||{}}});navigate(saved.stage==='rule'?'rule':'question')}
 function btn(label,action,cls=''){return `<button class="btn ${cls}" data-action="${action}">${esc(label)}</button>`}
 function card(inner,action,extra=''){return `<div class="card ${extra} ${action?'clickable':''}" ${action?`role="button" tabindex="0" data-action="${action}"`:''}>${inner}</div>`}
@@ -107,7 +108,7 @@ function evaluate(row,stage,value){const x=row.item,expected=answerFor(row,stage
 }
 function submit(value){const s=ui.session;if(s.result||!String(value).trim())return;const row=s.rows[s.index],stage=ui.stage;const result=evaluate(row,stage,value);s.answer=value;s.result=result;
   const key=itemKey(row,stage),old=data.progress[key]||{status:'new',successes:0,wrongCount:0};
-  data.attempts.push({key,itemId:row.item.id,stage,answer:value,verdict:result.verdict,day:moscowDay(),at:Date.now()});
+  data.attempts.push({id:crypto.randomUUID(),key,itemId:row.item.id,stage,answer:value,verdict:result.verdict,day:moscowDay(),at:Date.now()});
   if(result.verdict==='correct'){
     s.first++;const successes=old.status==='review'?old.successes+1:1;
     data.progress[key]={status:'review',successes,wrongCount:old.wrongCount,due:Date.now()+REVIEW_DAYS[Math.min(successes-1,REVIEW_DAYS.length-1)]*86400000,completedDay:moscowDay(),firstCompletedDay:old.firstCompletedDay||moscowDay(),lastVerdict:'correct'};
@@ -116,14 +117,14 @@ function submit(value){const s=ui.session;if(s.result||!String(value).trim())ret
   }
   saveActive();render();
 }
-function finish(){const s=ui.session;if(!s.finished){const record={day:moscowDay(),count:s.rows.length,first:s.first,seconds:Math.max(1,Math.round((Date.now()-s.started)/1000))};data.sessions.push(record);s.finished=true;data.activeSession=null;persist()}}
+function finish(){const s=ui.session;if(!s.finished){const record={id:crypto.randomUUID(),started:s.started,at:Date.now(),day:moscowDay(),count:s.rows.length,first:s.first,seconds:Math.max(1,Math.round((Date.now()-s.started)/1000))};data.sessions.push(record);s.finished=true;data.activeSession=null;data.activeSessionAt=Date.now();persist()}}
 function result(){finish();const s=ui.session;return `<button class="back" data-action="stages">‹ Виды заданий</button><div class="center"><div class="result-mascots"><img src="${MASCOT_ASSET}" alt="Кот и чайка поздравляют"></div><div class="badge">ТРЕНИРОВКА ЗАВЕРШЕНА</div><h1>Хорошая работа!</h1><p class="sub">Вы уделили время английскому — это уже шаг вперёд.</p></div>${card(`<div class="center"><strong class="stat">${s.first}/${s.rows.length}</strong><p>правильных с первой попытки</p><p class="sub">${s.first>=8?'Вы уверенно справились с этой подборкой ✨':s.first>=4?'С каждым повторением ответы будут даваться легче 🌱':'Трудные задания подскажут, что потренировать дальше 💛'}</p></div>`)}${btn('Ещё одна подборка','again','full')}<div style="height:9px"></div>${btn('Закончить','stages','secondary full')}${s.rows.length<10?'<p class="muted-small">Сегодня было меньше десяти доступных заданий. Для календаря занятий засчитывается завершённая десятка.</p>':''}`}
 function progressPage(){const total=allItems().filter(r=>r.kind==='word').length;return `<button class="back" data-action="home">‹ Главная</button><div class="badge">МОЙ ПРОГРЕСС</div><h1>Видно, как вы растёте 🌱</h1><div class="metric-grid">${card(`<span>Дней занятий</span><strong>${daySessions().size}</strong>`)}${card(`<span>Выучено слов</span><strong>${learnedCount()} из ${total}</strong>`)}</div><h2 class="section-title">По видам практики</h2>${Object.entries(STAGES).filter(([id])=>id!=='rule').map(([id,s])=>{const rows=allItems().filter(r=>eligible(r,id)),done=rows.filter(r=>progress(r,id)?.status==='review').length;return card(`<div class="row"><strong>${s.label}</strong><strong>${done}/${rows.length}</strong></div><div class="bar"><span style="width:${rows.length?done/rows.length*100:0}%"></span></div>`)}).join('')}<p class="muted-small">Выбор перевода и самостоятельное употребление слова считаются отдельно.</p>`}
-function settings(){return `<button class="back" data-action="home">‹ Главная</button><div class="badge">ДАННЫЕ И НАСТРОЙКИ</div><h1>Ваш прогресс</h1>${card(`<strong>Сохранён на этом устройстве</strong><p class="sub">Обычное закрытие страницы его не удаляет. Очистка данных браузера или смена телефона может удалить прогресс.</p><div class="btn-row">${btn('Скачать копию','export')}${btn('Восстановить копию','import','secondary')}</div><input type="file" id="file-import" accept="application/json,.json">`)}${card('<strong>О приложении</strong><p class="sub">Урок 14 содержит ваши учебные материалы. Свободные переводы автоматически сверяются с заранее подготовленными ответами. Неожиданный вариант не объявляется неверным и требует отдельной проверки.</p>')}<p class="muted-small">Версия ${APP_VERSION}. Данные не отправляются на GitHub автоматически.</p>`}
+function settings(){return `<button class="back" data-action="home">‹ Главная</button><div class="badge">ДАННЫЕ И НАСТРОЙКИ</div><h1>Ваш прогресс</h1>${card(progressSync?.markup()||'<strong>Сохранение прогресса</strong>')}${card(`<strong>Резервная копия</strong><p class="sub">Локальная копия остаётся в браузере. Перед восстановлением из файла скачайте резервную копию. Подключённые устройства автоматически объединяют результаты.</p><div class="btn-row">${btn('Скачать копию','export')}${btn('Восстановить копию','import','secondary')}</div><input type="file" id="file-import" accept="application/json,.json">`)}${card('<strong>О приложении</strong><p class="sub">Урок 14 содержит ваши учебные материалы. Свободные переводы автоматически сверяются с заранее подготовленными ответами. Неожиданный вариант не объявляется неверным и требует отдельной проверки.</p>')}<p class="muted-small">Версия ${APP_VERSION}. Данные не отправляются на GitHub автоматически.</p>`}
 function render(){if(!content){app.innerHTML='<p class="error">Не удалось загрузить учебный материал.</p>';return}app.innerHTML=({home,lesson,blocks,catalog,stages,review,question,rule,result,progress:progressPage,settings}[ui.page]||home)();if(ui.message){app.insertAdjacentHTML('afterbegin',`<div class="warning">${esc(ui.message)}</div>`);ui.message=''}nav.innerHTML=[['home','⌂','Главная'],['review','◷','Повторение'],['progress','▥','Прогресс'],['settings','☺','Данные']].map(([id,icon,label])=>`<button data-action="${id}" class="${ui.page===id?'active':''}"><span>${icon}</span>${label}</button>`).join('')}
 function navigate(page){ui.page=page;render();window.scrollTo(0,0)}
 function exportData(){const blob=new Blob([JSON.stringify({format:'my-english-progress',exportedAt:new Date().toISOString(),data},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`my-english-progress-${moscowDay()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-async function importData(file){try{const parsed=JSON.parse(await file.text());const saved=parsed.data;if(parsed.format!=='my-english-progress'||saved?.version!==1||!saved.progress||!Array.isArray(saved.attempts)||!Array.isArray(saved.sessions))throw Error('Файл не похож на копию прогресса.');if(!confirm('Заменить текущий прогресс данными из выбранного файла? Сначала скачайте копию текущих данных, если они нужны.'))return;data=saved;persist();ui.message='Прогресс восстановлен из файла.';navigate('settings')}catch(e){ui.message='Не удалось восстановить файл: '+e.message;render()}}
+async function importData(file){try{const parsed=JSON.parse(await file.text());const saved=parsed.data;if(parsed.format!=='my-english-progress'||saved?.version!==1||!saved.progress||!Array.isArray(saved.attempts)||!Array.isArray(saved.sessions))throw Error('Файл не похож на копию прогресса.');if(!EnglishSyncData.valid(saved))throw Error('Данные копии повреждены.');if(!confirm('Добавить результаты из файла к текущему прогрессу? Уже пройденные задания сохранятся.'))return;data=EnglishSyncData.merge(data,saved);persist();ui.message='Прогресс восстановлен из файла.';navigate('settings')}catch(e){ui.message='Не удалось восстановить файл: '+e.message;render()}}
 async function importFromPrivateLink(){
   const hash=location.hash;
   if(!hash.startsWith('#progress='))return;
@@ -136,8 +137,9 @@ async function importFromPrivateLink(){
     const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
     const parsed=JSON.parse(await new Response(stream).text()),saved=parsed.data;
     if(parsed.format!=='my-english-progress'||saved?.version!==1||!saved.progress||!Array.isArray(saved.attempts)||!Array.isArray(saved.sessions))throw Error('Ссылка не содержит подходящий прогресс.');
-    if(data.attempts.length&&!confirm('На этом устройстве уже есть результаты занятий. Заменить их прогрессом с телефона?')){ui.message='Прогресс на этом устройстве оставлен без изменений.';navigate('settings');return}
-    data=saved;
+    if(data.attempts.length&&!confirm('Добавить результаты из ссылки к прогрессу этого устройства?')){ui.message='Прогресс на этом устройстве оставлен без изменений.';navigate('settings');return}
+    if(!EnglishSyncData.valid(saved))throw Error('Данные копии повреждены.');
+    data=EnglishSyncData.merge(data,saved);
     if(!persist())throw Error('Браузер не смог сохранить прогресс.');
     ui.message='Готово: прогресс с телефона перенесён на это устройство.';
     navigate('settings');
@@ -148,5 +150,17 @@ document.addEventListener('change',event=>{if(event.target.id==='file-import'&&e
 document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('.card.clickable'))event.target.click();if(event.key==='Enter'&&event.target.id==='answer'&&!ui.session?.result)submit(event.target.value)});
 setInterval(()=>{if(ui.page==='home'&&moscowDay()!==window.lastDay){window.lastDay=moscowDay();render()}},30000);window.lastDay=moscowDay();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+progressSync=new EnglishProgressSync({
+  getData:()=>data,
+  applyData:joined=>{
+    // A remote refresh must not disturb a question currently open here.
+    if(ui.session&&!ui.session.finished){joined.activeSession=data.activeSession;joined.activeSessionAt=data.activeSessionAt;}
+    data=joined;
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}catch{return false;}
+    if(['home','progress','settings'].includes(ui.page))render();
+    return true;
+  },
+  onStatus:()=>{if(ui.page==='settings')render();}
+});
 render();
-importFromPrivateLink();
+importFromPrivateLink().finally(()=>progressSync.start());
